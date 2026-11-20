@@ -46,7 +46,7 @@ const MAX_RESTARTS = 3;
 const IS_TERMUX = Boolean(process.env.PREFIX && process.env.PREFIX.includes('com.termux'));
 
 const state = {
-    status: 'stopped', // stopped | downloading | starting | running | external | error
+    status: 'stopped', // stopped | downloading | starting | running | stopping | external | error
     message: '',
     progress: null, // 下载进度 0-100
     child: null,
@@ -369,15 +369,22 @@ function stop() {
     const child = state.child;
     if (!child) {
         const pids = ownPids();
-        if (pids.length) return killPids(pids).then(() => setStatus('stopped', '已停止'));
+        if (pids.length) {
+            setStatus('stopping', '停止中');
+            return killPids(pids).then(() => setStatus('stopped', '已停止'));
+        }
         if (state.status !== 'external') setStatus('stopped', '已停止');
         return Promise.resolve();
     }
+    setStatus('stopping', '停止中');
     return new Promise((resolve) => {
         const timer = setTimeout(() => {
             try { child.kill('SIGKILL'); } catch { /* 已退出 */ }
-        }, 5000);
+            for (const p of ownPids()) try { process.kill(p, 'SIGKILL'); } catch { /* 已退出 */ }
+        }, 4000);
         child.once('exit', () => { clearTimeout(timer); resolve(); });
+        // Termux 上子进程是 proot，它不把 SIGTERM 转给里面的程序：直接发给程序本身，程序退出后 proot 跟着退
+        if (IS_TERMUX) for (const p of ownPids()) try { process.kill(p, 'SIGTERM'); } catch { /* 已退出 */ }
         try { child.kill('SIGTERM'); } catch { clearTimeout(timer); resolve(); }
     });
 }
@@ -468,7 +475,7 @@ async function init(router) {
         res.json(await snapshot());
     });
     router.post('/stop', async (_req, res) => {
-        await stop();
+        stop(); // 不等停完：先回「停止中」，前端轮询看结果
         res.json(await snapshot());
     });
     router.post('/update', async (_req, res) => {

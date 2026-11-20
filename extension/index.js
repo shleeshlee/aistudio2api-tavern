@@ -18,6 +18,7 @@ const STATUS_TEXT = {
     downloading: '下载中',
     starting: '启动中',
     running: '运行中',
+    stopping: '停止中',
     external: '外部运行中',
     error: '出错',
     offline: '插件未加载',
@@ -49,7 +50,7 @@ function render() {
     $('#a2a_version').text(current.version && current.version !== 'unknown' ? current.version : '');
 
     const btn = $('#a2a_toggle');
-    const busy = s === 'downloading' || s === 'starting';
+    const busy = s === 'downloading' || s === 'starting' || s === 'stopping';
     // 等待时按钮方框不动，里面换成一个转圈的细圆环
     btn.toggleClass('fa-play', !isUp(s) && !busy)
         .toggleClass('fa-stop', s === 'running')
@@ -75,15 +76,19 @@ async function refresh() {
 function schedule() {
     clearTimeout(pollTimer);
     const s = current.status;
-    const fast = s === 'downloading' || s === 'starting';
+    const fast = s === 'downloading' || s === 'starting' || s === 'stopping';
     pollTimer = setTimeout(refresh, fast ? 1000 : 10000);
 }
 
 async function toggle() {
     const s = current.status;
-    if (s === 'downloading' || s === 'starting' || s === 'external' || s === 'offline') return;
+    if (s === 'downloading' || s === 'starting' || s === 'stopping' || s === 'external' || s === 'offline') return;
+    const stopping = s === 'running';
+    // 点下去立刻有反馈，不等服务端回话
+    current = { ...current, status: stopping ? 'stopping' : 'starting' };
+    render();
     try {
-        current = await call('POST', s === 'running' ? 'stop' : 'start');
+        current = await call('POST', stopping ? 'stop' : 'start');
     } catch (err) {
         toastr.error(err.message, NAME);
     }
