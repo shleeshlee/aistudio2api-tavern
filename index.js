@@ -262,13 +262,46 @@ function launch() {
 
 let busy = false;
 
+// 正在运行的「本目录这个程序」的进程：酒馆被强制结束时留下的、或用同目录的 Termux 命令起的。
+// 它们是本插件管的那份程序，认领回来，面板照样能停。
+function ownPids() {
+    if (fs.existsSync('/proc/self/cmdline')) {
+        const pids = [];
+        for (const d of fs.readdirSync('/proc')) {
+            if (!/^\d+$/.test(d) || Number(d) === process.pid) continue;
+            try {
+                if (fs.readFileSync(`/proc/${d}/cmdline`, 'utf8').split('\0').includes(BIN_PATH)) pids.push(Number(d));
+            } catch { /* 进程已退出或无权读 */ }
+        }
+        return pids;
+    }
+    try {
+        return execFileSync('pgrep', ['-f', BIN_PATH], { encoding: 'utf8' })
+            .split('\n').filter(Boolean).map(Number).filter((p) => p !== process.pid);
+    } catch {
+        return [];
+    }
+}
+
+const EXTERNAL_MSG = '这个 AIStudio2API 不是插件启动的，启停要到启动它的地方操作';
+
+async function killPids(pids) {
+    for (const p of pids) try { process.kill(p, 'SIGTERM'); } catch { /* 已退出 */ }
+    for (let i = 0; i < 10; i++) {
+        await new Promise((r) => setTimeout(r, 500));
+        if (!ownPids().length) return;
+    }
+    for (const p of ownPids()) try { process.kill(p, 'SIGKILL'); } catch { /* 已退出 */ }
+}
+
 async function start() {
     if (busy) return;
     if (state.child) return;
     busy = true;
     try {
         if (await portInUse(PORT)) {
-            setStatus('external', `端口 ${PORT} 已被占用：AIStudio2API 可能已在别处运行`);
+            if (ownPids().length) setStatus('running', '运行中（接管已在运行的程序）');
+            else setStatus('external', EXTERNAL_MSG);
             return;
         }
         if (!fs.existsSync(BIN_PATH)) {
@@ -289,6 +322,8 @@ function stop() {
     state.wantRunning = false;
     const child = state.child;
     if (!child) {
+        const pids = ownPids();
+        if (pids.length) return killPids(pids).then(() => setStatus('stopped', '已停止'));
         if (state.status !== 'external') setStatus('stopped', '已停止');
         return Promise.resolve();
     }
@@ -303,7 +338,7 @@ function stop() {
 
 async function update() {
     if (busy) throw new Error('正在处理上一个操作');
-    if (state.child) throw new Error('先停止再更新');
+    if (state.child || ownPids().length) throw new Error('先停止再更新');
     busy = true;
     try {
         const tag = await latestTag();
@@ -323,11 +358,19 @@ async function update() {
 }
 
 async function snapshot() {
-    // 不是本插件启动的，但端口有服务：多半是用 Termux 命令单独起的
-    if (!state.child && (state.status === 'stopped' || state.status === 'external')) {
-        const inUse = await portInUse(PORT);
-        if (inUse && state.status === 'stopped') state.status = 'external';
-        if (!inUse && state.status === 'external') state.status = 'stopped';
+    // 插件没有直接管着子进程时，看端口上跑的是谁：本目录的程序 → 认领为运行中；别的 → 外部运行中
+    if (!state.child && !busy && ['stopped', 'external', 'running'].includes(state.status)) {
+        if (await portInUse(PORT)) {
+            if (ownPids().length) {
+                if (state.status !== 'running') { state.status = 'running'; state.message = '运行中'; }
+            } else if (state.status !== 'external') {
+                state.status = 'external';
+                state.message = EXTERNAL_MSG;
+            }
+        } else if (state.status !== 'stopped') {
+            state.status = 'stopped';
+            state.message = '';
+        }
     }
     return {
         status: state.status,

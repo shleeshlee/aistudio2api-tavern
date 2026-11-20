@@ -387,8 +387,12 @@ if [ -n "$ST_PID" ]; then
   warn "酒馆正在运行（PID ${ST_PID}），要重启才能用上新插件"
   if ask "现在自动重启酒馆？" y; then
     stop_st "$ST_PID"
-    # 酒馆退出时插件会带走它启动的程序，等程序退干净再换
-    for _ in $(seq 1 5); do program_running || break; sleep 1; done
+    # 酒馆被结束时插件来不及带走它启动的程序，这里一并停掉，否则会变成没人管的进程
+    for _ in $(seq 1 3); do program_running || break; sleep 1; done
+    if program_running; then
+      info "停止插件之前启动的 AIStudio2API（重启后在面板点 ▶ 再开）"
+      stop_program
+    fi
     swap_program
     start_st
     info "酒馆已在后台重启，等待插件加载…"
