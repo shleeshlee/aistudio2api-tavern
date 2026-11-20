@@ -344,6 +344,9 @@ async function start() {
     if (busy) return;
     if (state.child) return;
     busy = true;
+    // 先同步改成「启动中」再做任何等待：路由马上回话时面板拿到的就是启动中，不会被打回「已停止」
+    state.status = 'starting';
+    state.message = '启动中';
     try {
         if (await portInUse(PORT)) {
             if (ownPids().length) setStatus('running', '运行中（接管已在运行的程序）');

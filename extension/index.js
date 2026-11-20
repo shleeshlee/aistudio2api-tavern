@@ -73,10 +73,13 @@ async function refresh() {
     schedule();
 }
 
+// 点过启动/停止后的这段时间按秒刷新，避免状态晚一步才变
+let fastUntil = 0;
+
 function schedule() {
     clearTimeout(pollTimer);
     const s = current.status;
-    const fast = s === 'downloading' || s === 'starting' || s === 'stopping';
+    const fast = s === 'downloading' || s === 'starting' || s === 'stopping' || Date.now() < fastUntil;
     pollTimer = setTimeout(refresh, fast ? 1000 : 10000);
 }
 
@@ -86,6 +89,7 @@ async function toggle() {
     const stopping = s === 'running';
     // 点下去立刻有反馈，不等服务端回话
     current = { ...current, status: stopping ? 'stopping' : 'starting' };
+    fastUntil = Date.now() + 15000;
     render();
     try {
         current = await call('POST', stopping ? 'stop' : 'start');
