@@ -23,7 +23,16 @@ const { pipeline } = require('stream/promises');
 
 // 上游在前；上游删库或停更时用备份 fork（由 tools/mirror-upstream.sh 每天同步）
 const SOURCES = ['Mag1cFall/AIStudio2API', 'shleeshlee/AIStudio2API'];
-const APP_DIR = process.env.AISTUDIO2API_HOME || path.join(os.homedir(), 'aistudio2api');
+// 程序目录：环境变量 > 安装脚本记下的独立安装目录（~/.aistudio2api-tavern）> 默认 ~/aistudio2api
+function resolveAppDir() {
+    if (process.env.AISTUDIO2API_HOME) return process.env.AISTUDIO2API_HOME;
+    try {
+        const linked = fs.readFileSync(path.join(os.homedir(), '.aistudio2api-tavern'), 'utf8').split('\n')[0].trim();
+        if (linked && fs.existsSync(linked)) return linked;
+    } catch { /* 没有指向独立安装 */ }
+    return path.join(os.homedir(), 'aistudio2api');
+}
+const APP_DIR = resolveAppDir();
 const BIN_NAME = process.platform === 'win32' ? 'aistudio2api.exe' : 'aistudio2api';
 const BIN_PATH = path.join(APP_DIR, BIN_NAME);
 const VERSION_FILE = path.join(APP_DIR, '.termux-version'); // 与 Termux 直装脚本共用

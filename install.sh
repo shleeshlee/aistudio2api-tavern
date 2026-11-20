@@ -12,7 +12,16 @@ set -uo pipefail
 REPO="https://github.com/shleeshlee/aistudio2api-tavern.git"
 SOURCES=("Mag1cFall/AIStudio2API" "shleeshlee/AIStudio2API") # 上游在前，备份 fork 在后
 NAME="AIStudio2API"
-APP_DIR="${AISTUDIO2API_HOME:-$HOME/aistudio2api}"
+DEFAULT_DIR="$HOME/aistudio2api"
+# 插件改用独立安装的目录时，路径记在这里（插件也读这个文件）
+LINK_FILE="$HOME/.aistudio2api-tavern"
+if [ -n "${AISTUDIO2API_HOME:-}" ]; then
+  APP_DIR="$AISTUDIO2API_HOME"
+elif [ -s "$LINK_FILE" ] && [ -d "$(head -1 "$LINK_FILE")" ]; then
+  APP_DIR="$(head -1 "$LINK_FILE")"
+else
+  APP_DIR="$DEFAULT_DIR"
+fi
 RAW="https://raw.githubusercontent.com/shleeshlee/aistudio2api-tavern/main/install.sh"
 
 BLUE='\033[1;34m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; RED='\033[0;31m'; BOLD='\033[1m'; NC='\033[0m'
@@ -167,7 +176,10 @@ if [ "$ACTION" = uninstall ]; then
   rm -rf "$PLUGIN_DIR" "$EXT_DIR" "$ST_DIR/aistudio2api-st.log"
   ok "已删除插件和面板"
 
-  if [ -d "$APP_DIR" ]; then
+  rm -f "$LINK_FILE"
+  if [ -d "$APP_DIR" ] && [ "$APP_DIR" != "$DEFAULT_DIR" ]; then
+    ok "已保留你独立安装的 ${APP_DIR}（插件只是借用它，不删）"
+  elif [ -d "$APP_DIR" ]; then
     echo ""
     echo -e "  ${YELLOW}${APP_DIR} 里有程序和已导入的 Google 账号（auth/），删了要重新导入账号${NC}"
     if ask "连程序和账号一起删除？" n; then
@@ -257,6 +269,43 @@ if [ -f "$CONFIG" ]; then
   fi
 else
   warn "还没有 config.yaml（酒馆没启动过）：首次启动后把 enableServerPlugins 改成 true 再重启"
+fi
+
+# ---------- 识别独立安装的 AIStudio2API ----------
+# 不是本插件装的（自己解压的、别的脚本装的）：找到就问要不要直接用它，文件原地不动
+count_accounts() { local n=0 d; for d in "$1"/auth/*/; do [ -d "$d" ] && n=$((n + 1)); done; echo "$n"; }
+is_app_dir() { [ -x "$1/aistudio2api" ] && { [ -f "$1/.env" ] || [ -d "$1/auth" ]; }; }
+find_standalone() {
+  {
+    # 正在运行的（包括套在 proot 里的）
+    { ps -A -o args= 2>/dev/null || ps -ax -o command= 2>/dev/null; } \
+      | grep -oE '[^ ]*/aistudio2api( |$)' | sed 's/ $//'
+    # 主目录下解压过的
+    find "$HOME" -maxdepth 4 -type f -name aistudio2api -not -path '*.app/*' -not -path '*/plugins/*' 2>/dev/null
+  } | while read -r bin; do
+    d="$(cd "$(dirname "$bin")" 2>/dev/null && pwd)" || continue
+    is_app_dir "$d" && echo "$d"
+  done | sort -u
+}
+
+if [ -z "${AISTUDIO2API_HOME:-}" ]; then
+  CUR_ACC=0
+  is_app_dir "$APP_DIR" && CUR_ACC="$(count_accounts "$APP_DIR")"
+  while read -r cand; do
+    [ -n "$cand" ] && [ "$cand" != "$APP_DIR" ] || continue
+    n="$(count_accounts "$cand")"
+    echo ""
+    info "发现独立安装的 AIStudio2API：${cand}（${n} 个账号）"
+    def=n
+    [ "$CUR_ACC" = 0 ] && [ "$n" -gt 0 ] && def=y
+    if ask "让插件直接用它？（文件不动，原来的账号直接可用）" "$def"; then
+      echo "$cand" > "$LINK_FILE"
+      APP_DIR="$cand"
+      CURRENT="$(cat "$APP_DIR/.termux-version" 2>/dev/null || true)"
+      ok "插件改用 ${APP_DIR}"
+      break
+    fi
+  done < <(find_standalone)
 fi
 
 # ---------- 程序本体：先下载到临时目录，进程停了再换上 ----------

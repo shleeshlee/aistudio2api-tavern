@@ -23,6 +23,8 @@ curl -fsSL https://raw.githubusercontent.com/shleeshlee/aistudio2api-tavern/main
 - **安装 / 更新**：补装缺的依赖（Termux 上包括修 DNS 用的 proot），装好插件和面板，打开 `config.yaml` 的 `enableServerPlugins`，下载或更新 AIStudio2API 程序；酒馆在运行时问要不要自动重启，重启后自动验收插件是否加载
 - **卸载**：停止程序，删除插件和面板；`~/aistudio2api/`（程序和已导入的账号）单独询问，默认保留
 
+已经单独装过 AIStudio2API（自己解压的、或用 aistudio2api-termux 装的）：安装/更新时会自动找出来（正在运行的进程和主目录下的文件夹），显示账号数，问要不要让插件直接用它；选是则插件改用那个目录，文件原地不动，卸载时也不会删它。
+
 免交互用法：`... | bash -s -- install`（或 `update`、`uninstall`），末尾可再加酒馆目录。
 
 ## 使用
