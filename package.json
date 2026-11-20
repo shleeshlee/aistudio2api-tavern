@@ -1,0 +1,12 @@
+{
+  "name": "aistudio2api-tavern",
+  "version": "0.1.0",
+  "description": "在 SillyTavern 里启动和管理 AIStudio2API",
+  "main": "index.js",
+  "author": "shleeshlee",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/shleeshlee/aistudio2api-tavern.git"
+  }
+}

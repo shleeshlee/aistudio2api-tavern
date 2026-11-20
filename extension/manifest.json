@@ -1,0 +1,12 @@
+{
+    "display_name": "AIStudio2API",
+    "loading_order": 2,
+    "requires": [],
+    "optional": [],
+    "js": "index.js",
+    "css": "style.css",
+    "author": "shleeshlee",
+    "version": "0.1.0",
+    "homePage": "https://github.com/shleeshlee/aistudio2api-tavern",
+    "auto_update": false
+}
