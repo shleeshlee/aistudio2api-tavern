@@ -50,9 +50,10 @@ function render() {
 
     const btn = $('#a2a_toggle');
     const busy = s === 'downloading' || s === 'starting';
+    // 等待时按钮方框不动，里面换成一个转圈的细圆环
     btn.toggleClass('fa-play', !isUp(s) && !busy)
         .toggleClass('fa-stop', s === 'running')
-        .toggleClass('fa-spinner fa-spin', busy)
+        .toggleClass('a2a-busy', busy)
         .toggle(s !== 'external' && s !== 'offline')
         .attr('title', s === 'running' ? '停止' : busy ? '处理中' : '启动');
 
@@ -108,17 +109,51 @@ function openAdmin() {
         openInTab(); // 转接口没起来时退回新标签页
         return;
     }
-    const wrap = document.createElement('div');
-    wrap.className = 'a2a-frame-wrap';
-    const bar = document.createElement('div');
-    bar.className = 'a2a-frame-bar';
-    bar.innerHTML = '<b>AIStudio2API</b><span class="a2a-link">在浏览器新标签页打开 ↗</span>';
-    bar.querySelector('.a2a-link').addEventListener('click', openInTab);
-    const frame = document.createElement('iframe');
-    frame.className = 'a2a-frame';
-    frame.src = `http://127.0.0.1:${current.uiPort}/`;
-    wrap.append(bar, frame);
-    callGenericPopup(wrap, POPUP_TYPE.DISPLAY, '', { wide: true, large: true, allowVerticalScrolling: false });
+    // 自己的全屏层，不用酒馆弹窗：酒馆弹窗的内边距会把管理页面挤到比它的最小宽度还窄
+    if (document.getElementById('a2a_overlay')) return;
+    const overlay = document.createElement('div');
+    overlay.id = 'a2a_overlay';
+    overlay.innerHTML = `
+      <div class="a2a-sheet">
+        <div class="a2a-sheet-bar">
+          <b>AIStudio2API</b>
+          <span class="a2a-sheet-actions">
+            <span class="a2a-sheet-tab" title="在浏览器新标签页打开">新标签页 ↗</span>
+            <i class="fa-solid fa-xmark a2a-sheet-close" title="关闭"></i>
+          </span>
+        </div>
+        <iframe class="a2a-frame" src="http://127.0.0.1:${current.uiPort}/"></iframe>
+      </div>`;
+    // 屏幕比管理页面能排开的最小宽度还窄时，按最小宽度排版再整体缩小，不让右边被切掉
+    const MIN_WIDTH = 400;
+    const sheet = overlay.querySelector('.a2a-sheet');
+    const frame = overlay.querySelector('.a2a-frame');
+    const fit = () => {
+        const w = sheet.clientWidth;
+        const h = sheet.clientHeight - overlay.querySelector('.a2a-sheet-bar').offsetHeight;
+        if (w > 0 && w < MIN_WIDTH) {
+            const scale = w / MIN_WIDTH;
+            Object.assign(frame.style, {
+                flex: '0 0 auto', width: `${MIN_WIDTH}px`, height: `${h / scale}px`,
+                transform: `scale(${scale})`, transformOrigin: 'top left',
+            });
+        } else {
+            Object.assign(frame.style, { flex: '', width: '', height: '', transform: '', transformOrigin: '' });
+        }
+    };
+    window.addEventListener('resize', fit);
+    const close = () => {
+        overlay.remove();
+        document.removeEventListener('keydown', onKey);
+        window.removeEventListener('resize', fit);
+    };
+    const onKey = (e) => { if (e.key === 'Escape') close(); };
+    overlay.querySelector('.a2a-sheet-close').addEventListener('click', close);
+    overlay.querySelector('.a2a-sheet-tab').addEventListener('click', openInTab);
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+    document.addEventListener('keydown', onKey);
+    document.body.appendChild(overlay);
+    fit();
 }
 
 async function showLogs() {
@@ -192,9 +227,9 @@ function createUI() {
         </div>
       </div>
       <div id="a2a_bar">
+        <span id="a2a_open" class="a2a-link a2a-open">打开管理页面</span>
         <span id="a2a_msg"></span>
         <span class="a2a-links">
-          <span id="a2a_open" class="a2a-link a2a-open">打开管理页面</span>
           <span id="a2a_logs" class="a2a-link">日志</span>
           <span id="a2a_update" class="a2a-link">更新</span>
         </span>
