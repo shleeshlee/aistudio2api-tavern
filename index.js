@@ -212,6 +212,9 @@ function buildCommand() {
     const resolv = path.join(prefix, 'etc', 'resolv.conf');
     if (!fs.existsSync(resolv)) fs.writeFileSync(resolv, 'nameserver 8.8.8.8\nnameserver 1.1.1.1\n');
     env.SSL_CERT_FILE = path.join(prefix, 'etc', 'tls', 'cert.pem');
+    // termux-exec（LD_PRELOAD）会把 proot 的 execve 改走系统 linker64，
+    // 系统加载器拒绝静态非 PIE 程序：报 "has unexpected e_type: 2"。proot 自己负责加载，钩子必须去掉
+    delete env.LD_PRELOAD;
     return { cmd: 'proot', args: ['--kill-on-exit', '-b', `${resolv}:/etc/resolv.conf`, BIN_PATH, ...args], env };
 }
 
