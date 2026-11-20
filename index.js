@@ -16,6 +16,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const net = require('net');
+const http = require('http');
 const { spawn, execFileSync } = require('child_process');
 const { Readable } = require('stream');
 const { pipeline } = require('stream/promises');
@@ -27,6 +28,8 @@ const BIN_NAME = process.platform === 'win32' ? 'aistudio2api.exe' : 'aistudio2a
 const BIN_PATH = path.join(APP_DIR, BIN_NAME);
 const VERSION_FILE = path.join(APP_DIR, '.termux-version'); // 与 Termux 直装脚本共用
 const PORT = Number(process.env.AISTUDIO2API_PORT) || 2048;
+// 管理页面自带防嵌入（X-Frame-Options: DENY），酒馆弹窗通过这个本机转接口加载它
+const UI_PORT = Number(process.env.AISTUDIO2API_UI_PORT) || 2052;
 const LOG_LIMIT = 300;
 const MAX_RESTARTS = 3;
 
@@ -325,7 +328,39 @@ async function snapshot() {
         port: PORT,
         termux: IS_TERMUX,
         appDir: APP_DIR,
+        uiPort: frameProxy && frameProxy.listening ? UI_PORT : null,
     };
+}
+
+// ---------- 弹窗用的本机转接 ----------
+// 原样转发到 AIStudio2API，只把「禁止被嵌入」换成「只允许本机页面嵌入」。
+// 只监听 127.0.0.1；Host/Origin 原样转发，上游的同源与回环校验照常生效。
+let frameProxy = null;
+
+function errorPage(res, text) {
+    res.writeHead(502, { 'content-type': 'text/html; charset=utf-8' });
+    res.end(`<body style="font-family:sans-serif;padding:24px;color:#888">${text}</body>`);
+}
+
+function startFrameProxy() {
+    frameProxy = http.createServer((req, res) => {
+        const upstream = http.request(
+            { host: '127.0.0.1', port: PORT, method: req.method, path: req.url, headers: req.headers },
+            (up) => {
+                const headers = { ...up.headers };
+                delete headers['x-frame-options'];
+                headers['content-security-policy'] = "frame-ancestors 'self' http://127.0.0.1:* http://localhost:*";
+                res.writeHead(up.statusCode || 502, headers);
+                up.pipe(res);
+            },
+        );
+        upstream.on('error', () => errorPage(res, 'AIStudio2API 没有在运行：在酒馆扩展栏的面板上点 ▶ 启动'));
+        req.pipe(upstream);
+    });
+    frameProxy.on('error', (err) => {
+        log(`[插件] 弹窗转接口 ${UI_PORT} 启动失败：${err.message}（管理页面只能用新标签页打开）`);
+    });
+    frameProxy.listen(UI_PORT, '127.0.0.1');
 }
 
 async function init(router) {
@@ -348,6 +383,8 @@ async function init(router) {
     });
     router.get('/logs', (_req, res) => res.json({ logs: state.logs }));
 
+    startFrameProxy();
+
     // 酒馆被直接结束时也带走子进程
     process.once('exit', () => {
         if (state.child) try { state.child.kill('SIGKILL'); } catch { /* 已退出 */ }
@@ -356,6 +393,7 @@ async function init(router) {
 }
 
 async function exit() {
+    if (frameProxy) frameProxy.close();
     await stop();
 }
 

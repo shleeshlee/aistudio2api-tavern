@@ -33,7 +33,7 @@ curl -fsSL https://raw.githubusercontent.com/shleeshlee/aistudio2api-tavern/main
 | --- | --- |
 | 点右边 ▶ | 启动（第一次自动下载程序，约 75MB，需要能访问 GitHub） |
 | 点右边 ■ | 停止 |
-| 点面板本身 | 新标签页打开管理页面：添加账号、看用量 |
+| 点面板本身 / 「打开管理页面」 | 在酒馆里弹窗打开管理页面：添加账号、看用量（弹窗里也有「在浏览器新标签页打开」） |
 | 日志 | 查看程序最近的输出，启动失败时看这里 |
 | 更新 | 下载上游最新版（先停止） |
 
@@ -44,6 +44,8 @@ curl -fsSL https://raw.githubusercontent.com/shleeshlee/aistudio2api-tavern/main
 ### 添加账号
 
 手机上不能用上游的浏览器登录，用「粘贴 Cookie」：Firefox 安卓版装 Cookie-Editor，登录 aistudio.google.com 后导出 JSON，到管理页面「账户 → 添加账户 → 粘贴 Cookie」。
+
+管理页面本身禁止被别的网页嵌入，插件在本机 `127.0.0.1:2052` 起了一个转接口供弹窗使用：只转发到 AIStudio2API，只允许本机页面嵌入。
 
 ## 状态说明
 

@@ -90,16 +90,35 @@ async function toggle() {
     schedule();
 }
 
+function openInTab() {
+    window.open(ADMIN_URL, '_blank', 'noopener,noreferrer');
+}
+
+// 在酒馆里弹窗打开管理页面（经插件的本机转接口，绕开它的防嵌入）
 function openAdmin() {
-    if (isUp(current.status)) {
-        window.open(ADMIN_URL, '_blank', 'noopener,noreferrer');
-        return;
-    }
     if (current.status === 'offline') {
         toastr.warning('服务端插件没有加载：确认 config.yaml 里 enableServerPlugins: true，然后重启酒馆', NAME);
         return;
     }
-    toastr.info('先点右边的 ▶ 启动', NAME);
+    if (!isUp(current.status)) {
+        toastr.info('先点右边的 ▶ 启动', NAME);
+        return;
+    }
+    if (!current.uiPort) {
+        openInTab(); // 转接口没起来时退回新标签页
+        return;
+    }
+    const wrap = document.createElement('div');
+    wrap.className = 'a2a-frame-wrap';
+    const bar = document.createElement('div');
+    bar.className = 'a2a-frame-bar';
+    bar.innerHTML = '<b>AIStudio2API</b><span class="a2a-link">在浏览器新标签页打开 ↗</span>';
+    bar.querySelector('.a2a-link').addEventListener('click', openInTab);
+    const frame = document.createElement('iframe');
+    frame.className = 'a2a-frame';
+    frame.src = `http://127.0.0.1:${current.uiPort}/`;
+    wrap.append(bar, frame);
+    callGenericPopup(wrap, POPUP_TYPE.DISPLAY, '', { wide: true, large: true, allowVerticalScrolling: false });
 }
 
 async function showLogs() {
@@ -159,7 +178,7 @@ function registerProxy() {
 function createUI() {
     const html = `
     <div id="a2a_container" class="extension_container">
-      <div id="a2a_panel" data-status="offline" title="点击打开 AIStudio2API 管理页面">
+      <div id="a2a_panel" data-status="offline" title="点击在酒馆里打开 AIStudio2API 管理页面">
         <div class="a2a-left">
           <span class="a2a-star-1">✦</span>
           <b>AIStudio2API</b>
@@ -175,6 +194,7 @@ function createUI() {
       <div id="a2a_bar">
         <span id="a2a_msg"></span>
         <span class="a2a-links">
+          <span id="a2a_open" class="a2a-link a2a-open">打开管理页面</span>
           <span id="a2a_logs" class="a2a-link">日志</span>
           <span id="a2a_update" class="a2a-link">更新</span>
         </span>
@@ -191,6 +211,10 @@ function createUI() {
         e.preventDefault();
         e.stopPropagation();
         toggle();
+    });
+    $(document).on('click', '#a2a_open', (e) => {
+        e.preventDefault();
+        openAdmin();
     });
     $(document).on('click', '#a2a_logs', (e) => {
         e.preventDefault();
