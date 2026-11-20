@@ -17,7 +17,7 @@ const os = require('os');
 const path = require('path');
 const net = require('net');
 const http = require('http');
-const { spawn, execFileSync } = require('child_process');
+const { spawn, execFile, execFileSync } = require('child_process');
 const { Readable } = require('stream');
 const { pipeline } = require('stream/promises');
 
@@ -94,7 +94,8 @@ function installedVersion() {
 function assetName(tag) {
     const arch = { arm64: 'arm64', x64: 'amd64' }[process.arch];
     if (!arch) throw new Error(`不支持的 CPU 架构：${process.arch}`);
-    if (process.platform === 'linux') return `aistudio2api-${tag}-linux-${arch}`;
+    // 新版 Termux 的 Node 把系统报成 android，用的是同一个 linux 静态程序
+    if (process.platform === 'linux' || process.platform === 'android') return `aistudio2api-${tag}-linux-${arch}`;
     if (process.platform === 'darwin') return `aistudio2api-${tag}-darwin-${arch}`;
     if (process.platform === 'win32') {
         if (arch !== 'amd64') throw new Error('上游只发布 64 位 x86 的 Windows 版');
@@ -117,12 +118,60 @@ function portInUse(port) {
     });
 }
 
+// 非 Windows 有 curl 就用 curl 联网：和安装脚本走同一条路。
+// Termux 里 Node 自带的 fetch 常因 DNS/代理/VPN 报 "fetch failed"，curl 能通
+function useCurl() {
+    return !IS_WINDOWS && commandExists('curl');
+}
+
+function runCurl(args, timeoutMs) {
+    return new Promise((resolve, reject) => {
+        execFile('curl', args, { timeout: timeoutMs, maxBuffer: 1 << 20 }, (err, stdout, stderr) => {
+            if (err) reject(new Error(String(stderr || err.message).trim().split('\n').pop() || 'curl 失败'));
+            else resolve(stdout);
+        });
+    });
+}
+
+async function curlDownload(url, file) {
+    // 先拿总大小算进度（跟随跳转后最后一个 content-length）
+    let total = 0;
+    try {
+        const head = await runCurl(['-fsSIL', '--max-time', '30', url], 40000);
+        const lens = [...head.matchAll(/^content-length:\s*(\d+)/gim)];
+        if (lens.length) total = Number(lens[lens.length - 1][1]);
+    } catch { /* 拿不到大小就不显示百分比 */ }
+    const timer = setInterval(() => {
+        try { if (total) state.progress = Math.min(99, Math.floor((fs.statSync(file).size / total) * 100)); } catch { /* 还没开始写 */ }
+    }, 500);
+    try {
+        await runCurl(['-fsSL', '--retry', '2', '-o', file, url], 15 * 60 * 1000);
+    } finally {
+        clearInterval(timer);
+    }
+}
+
 async function latestTag() {
     // 读 releases/latest 的跳转地址，不走 GitHub API（无限流）；上游不行换备份
     const errors = [];
     for (const source of SOURCES) {
+        const url = `https://github.com/${source}/releases/latest`;
+        if (useCurl()) {
+            try {
+                const effective = await runCurl(['-fsSL', '-o', '/dev/null', '-w', '%{url_effective}', '--max-time', '30', url], 40000);
+                const m = effective.match(/\/tag\/([^/?#\s]+)/);
+                if (m) {
+                    if (source !== SOURCES[0]) log(`[插件] 上游不可用，改用备份 ${source}`);
+                    return m[1];
+                }
+                errors.push(`${source} 没有 release`);
+            } catch (err) {
+                errors.push(`${source} ${err.message}`);
+            }
+            continue;
+        }
         try {
-            const res = await fetch(`https://github.com/${source}/releases/latest`, { redirect: 'manual' });
+            const res = await fetch(url, { redirect: 'manual' });
             const match = (res.headers.get('location') || '').match(/\/tag\/([^/?#]+)/);
             if (match) {
                 if (source !== SOURCES[0]) log(`[插件] 上游不可用，改用备份 ${source}`);
@@ -161,15 +210,31 @@ async function download(tag) {
     try {
         setStatus('downloading', `下载 ${tag}`);
         state.progress = 0;
-        const res = await fetchRelease(tag, name);
-        const total = Number(res.headers.get('content-length')) || 0;
-        let received = 0;
-        const body = Readable.fromWeb(res.body);
-        body.on('data', (chunk) => {
-            received += chunk.length;
-            if (total) state.progress = Math.floor((received / total) * 100);
-        });
-        await pipeline(body, fs.createWriteStream(archive));
+        if (useCurl()) {
+            const errors = [];
+            let ok = false;
+            for (const source of SOURCES) {
+                try {
+                    await curlDownload(`https://github.com/${source}/releases/download/${tag}/${name}${ARCHIVE_EXT}`, archive);
+                    if (source !== SOURCES[0]) log(`[插件] 从备份 ${source} 下载`);
+                    ok = true;
+                    break;
+                } catch (err) {
+                    errors.push(`${source} ${err.message}`);
+                }
+            }
+            if (!ok) throw new Error(`下载失败（${errors.join('；')}）`);
+        } else {
+            const res = await fetchRelease(tag, name);
+            const total = Number(res.headers.get('content-length')) || 0;
+            let received = 0;
+            const body = Readable.fromWeb(res.body);
+            body.on('data', (chunk) => {
+                received += chunk.length;
+                if (total) state.progress = Math.floor((received / total) * 100);
+            });
+            await pipeline(body, fs.createWriteStream(archive));
+        }
 
         // Windows 10 起自带的 tar.exe 能解 zip
         execFileSync('tar', IS_WINDOWS ? ['-xf', archive, '-C', tmpDir] : ['-xzf', archive, '-C', tmpDir]);
