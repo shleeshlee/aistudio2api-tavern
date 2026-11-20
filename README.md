@@ -2,32 +2,28 @@
 
 把 [AIStudio2API](https://github.com/Mag1cFall/AIStudio2API) 装进 SillyTavern：酒馆扩展栏里一个面板，点一下启动，点面板打开管理页面。安卓 Termux、Linux、macOS 都能用。
 
-不修改上游程序：插件第一次启动时下载上游发布的命令行版，放在 `~/aistudio2api/`（和 [aistudio2api-termux](https://github.com/shleeshlee/aistudio2api-termux) 共用，已有账号直接沿用）。
+不修改上游程序：程序从上游发布页下载，放在 `~/aistudio2api/`（和 [aistudio2api-termux](https://github.com/shleeshlee/aistudio2api-termux) 共用，已有账号直接沿用）。上游删库或停更时，自动改用备份 [shleeshlee/AIStudio2API](https://github.com/shleeshlee/AIStudio2API)（源码、发布包和编译依赖每天同步）。
 
-## 安装
+## 安装 / 更新 / 卸载
 
-在 Termux 或终端里运行（会自动找酒馆目录）：
+一条命令，在 Termux 或终端里运行（会自动找酒馆目录）：
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/shleeshlee/aistudio2api-tavern/main/install.sh | bash
 ```
 
-然后重启酒馆。脚本会：
+运行后选：
 
-1. 把服务端插件装到 `SillyTavern/plugins/AIStudio2API/`
-2. 把前端扩展装到 `public/scripts/extensions/third-party/AIStudio2API/`
-3. 打开 `config.yaml` 的 `enableServerPlugins`
-4. Termux 上缺 proot 时补装（用来给程序修 DNS）
-
-脚本会一并下载 AIStudio2API 程序本体，酒馆在运行时会问要不要自动重启，重启后自动验收插件是否加载。再次运行同一行命令即更新。
-
-## 卸载
-
-```sh
-curl -fsSL https://raw.githubusercontent.com/shleeshlee/aistudio2api-tavern/main/uninstall.sh | bash
+```
+    1) 安装
+    2) 更新
+    3) 卸载
 ```
 
-先停止程序，再删除插件和面板；`~/aistudio2api/`（程序和已导入的账号）会单独询问，默认保留。
+- **安装 / 更新**：补装缺的依赖（Termux 上包括修 DNS 用的 proot），装好插件和面板，打开 `config.yaml` 的 `enableServerPlugins`，下载或更新 AIStudio2API 程序；酒馆在运行时问要不要自动重启，重启后自动验收插件是否加载
+- **卸载**：停止程序，删除插件和面板；`~/aistudio2api/`（程序和已导入的账号）单独询问，默认保留
+
+免交互用法：`... | bash -s -- install`（或 `update`、`uninstall`），末尾可再加酒馆目录。
 
 ## 使用
 

@@ -20,7 +20,8 @@ const { spawn, execFileSync } = require('child_process');
 const { Readable } = require('stream');
 const { pipeline } = require('stream/promises');
 
-const UPSTREAM = 'Mag1cFall/AIStudio2API';
+// 上游在前；上游删库或停更时用备份 fork（由 tools/mirror-upstream.sh 每天同步）
+const SOURCES = ['Mag1cFall/AIStudio2API', 'shleeshlee/AIStudio2API'];
 const APP_DIR = process.env.AISTUDIO2API_HOME || path.join(os.homedir(), 'aistudio2api');
 const BIN_NAME = process.platform === 'win32' ? 'aistudio2api.exe' : 'aistudio2api';
 const BIN_PATH = path.join(APP_DIR, BIN_NAME);
@@ -96,24 +97,50 @@ function portInUse(port) {
 }
 
 async function latestTag() {
-    // 读 releases/latest 的跳转地址，不走 GitHub API（无限流）
-    const res = await fetch(`https://github.com/${UPSTREAM}/releases/latest`, { redirect: 'manual' });
-    const location = res.headers.get('location') || '';
-    const match = location.match(/\/tag\/([^/?#]+)/);
-    if (!match) throw new Error(`查不到最新版本（HTTP ${res.status}）`);
-    return match[1];
+    // 读 releases/latest 的跳转地址，不走 GitHub API（无限流）；上游不行换备份
+    const errors = [];
+    for (const source of SOURCES) {
+        try {
+            const res = await fetch(`https://github.com/${source}/releases/latest`, { redirect: 'manual' });
+            const match = (res.headers.get('location') || '').match(/\/tag\/([^/?#]+)/);
+            if (match) {
+                if (source !== SOURCES[0]) log(`[插件] 上游不可用，改用备份 ${source}`);
+                return match[1];
+            }
+            errors.push(`${source} HTTP ${res.status}`);
+        } catch (err) {
+            errors.push(`${source} ${err.message}`);
+        }
+    }
+    throw new Error(`查不到最新版本（${errors.join('；')}）`);
+}
+
+async function fetchRelease(tag, name) {
+    const errors = [];
+    for (const source of SOURCES) {
+        const url = `https://github.com/${source}/releases/download/${tag}/${name}.tar.gz`;
+        try {
+            const res = await fetch(url);
+            if (res.ok && res.body) {
+                if (source !== SOURCES[0]) log(`[插件] 从备份 ${source} 下载`);
+                return res;
+            }
+            errors.push(`${source} HTTP ${res.status}`);
+        } catch (err) {
+            errors.push(`${source} ${err.message}`);
+        }
+    }
+    throw new Error(`下载失败（${errors.join('；')}）`);
 }
 
 async function download(tag) {
     const name = assetName(tag);
-    const url = `https://github.com/${UPSTREAM}/releases/download/${tag}/${name}.tar.gz`;
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aistudio2api-'));
     const archive = path.join(tmpDir, 'pkg.tar.gz');
     try {
         setStatus('downloading', `下载 ${tag}`);
         state.progress = 0;
-        const res = await fetch(url);
-        if (!res.ok || !res.body) throw new Error(`下载失败 HTTP ${res.status}：${url}`);
+        const res = await fetchRelease(tag, name);
         const total = Number(res.headers.get('content-length')) || 0;
         let received = 0;
         const body = Readable.fromWeb(res.body);
