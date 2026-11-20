@@ -1,6 +1,6 @@
 # AIStudio2API for SillyTavern
 
-把 [AIStudio2API](https://github.com/Mag1cFall/AIStudio2API) 装进 SillyTavern：酒馆扩展栏里一个面板，点一下启动，点面板打开管理页面。安卓 Termux、Linux、macOS 都能用。
+把 [AIStudio2API](https://github.com/Mag1cFall/AIStudio2API) 装进 SillyTavern：酒馆扩展栏里一个面板，点一下启动，点面板打开管理页面。安卓 Termux、Linux、macOS、Windows 都能用。
 
 不修改上游程序：程序从上游发布页下载，放在 `~/aistudio2api/`（和 [aistudio2api-termux](https://github.com/shleeshlee/aistudio2api-termux) 共用，已有账号直接沿用）。上游删库或停更时，自动改用备份 [shleeshlee/AIStudio2API](https://github.com/shleeshlee/AIStudio2API)（源码、发布包和编译依赖每天同步）。
 
@@ -11,6 +11,14 @@
 ```sh
 curl -fsSL https://raw.githubusercontent.com/shleeshlee/aistudio2api-tavern/main/install.sh | bash
 ```
+
+**Windows**（PowerShell 里运行，需要 Windows 10 1803 及以上）：
+
+```powershell
+irm https://raw.githubusercontent.com/shleeshlee/aistudio2api-tavern/main/install.ps1 | iex
+```
+
+Windows 上程序是上游的桌面版，插件在后台启动它（只在托盘显示图标，不弹窗口），面板的「日志」读它写的日志文件。酒馆由脚本重启时会在新窗口里打开。
 
 运行后选：
 

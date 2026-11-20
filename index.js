@@ -27,7 +27,8 @@ const SOURCES = ['Mag1cFall/AIStudio2API', 'shleeshlee/AIStudio2API'];
 function resolveAppDir() {
     if (process.env.AISTUDIO2API_HOME) return process.env.AISTUDIO2API_HOME;
     try {
-        const linked = fs.readFileSync(path.join(os.homedir(), '.aistudio2api-tavern'), 'utf8').split('\n')[0].trim();
+        const linked = fs.readFileSync(path.join(os.homedir(), '.aistudio2api-tavern'), 'utf8')
+            .replace(/^﻿/, '').split(/\r?\n/)[0].trim();
         if (linked && fs.existsSync(linked)) return linked;
     } catch { /* 没有指向独立安装 */ }
     return path.join(os.homedir(), 'aistudio2api');
@@ -95,8 +96,16 @@ function assetName(tag) {
     if (!arch) throw new Error(`不支持的 CPU 架构：${process.arch}`);
     if (process.platform === 'linux') return `aistudio2api-${tag}-linux-${arch}`;
     if (process.platform === 'darwin') return `aistudio2api-${tag}-darwin-${arch}`;
-    throw new Error('目前只支持安卓 Termux、Linux 和 macOS；Windows 请直接用官方桌面版');
+    if (process.platform === 'win32') {
+        if (arch !== 'amd64') throw new Error('上游只发布 64 位 x86 的 Windows 版');
+        return `aistudio2api-${tag}-windows-amd64`;
+    }
+    throw new Error(`不支持的系统：${process.platform}`);
 }
+
+const IS_WINDOWS = process.platform === 'win32';
+// 上游 Windows 只发桌面版 zip（托盘程序，不往控制台输出），其他系统是命令行版 tar.gz
+const ARCHIVE_EXT = IS_WINDOWS ? '.zip' : '.tar.gz';
 
 function portInUse(port) {
     return new Promise((resolve) => {
@@ -130,7 +139,7 @@ async function latestTag() {
 async function fetchRelease(tag, name) {
     const errors = [];
     for (const source of SOURCES) {
-        const url = `https://github.com/${source}/releases/download/${tag}/${name}.tar.gz`;
+        const url = `https://github.com/${source}/releases/download/${tag}/${name}${ARCHIVE_EXT}`;
         try {
             const res = await fetch(url);
             if (res.ok && res.body) {
@@ -148,7 +157,7 @@ async function fetchRelease(tag, name) {
 async function download(tag) {
     const name = assetName(tag);
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aistudio2api-'));
-    const archive = path.join(tmpDir, 'pkg.tar.gz');
+    const archive = path.join(tmpDir, `pkg${ARCHIVE_EXT}`);
     try {
         setStatus('downloading', `下载 ${tag}`);
         state.progress = 0;
@@ -162,7 +171,8 @@ async function download(tag) {
         });
         await pipeline(body, fs.createWriteStream(archive));
 
-        execFileSync('tar', ['-xzf', archive, '-C', tmpDir]);
+        // Windows 10 起自带的 tar.exe 能解 zip
+        execFileSync('tar', IS_WINDOWS ? ['-xf', archive, '-C', tmpDir] : ['-xzf', archive, '-C', tmpDir]);
         const extracted = path.join(tmpDir, name, BIN_NAME);
         if (!fs.existsSync(extracted)) throw new Error('压缩包里没有 aistudio2api，上游包结构可能变了');
 
@@ -192,6 +202,8 @@ function buildCommand() {
     // 面板上点启动 = 连生成服务一起启动，不用再进管理页面点「启动服务」
     env.AUTO_START = 'true';
     if (process.env.AISTUDIO2API_PORT) env.LISTEN_ADDR = `127.0.0.1:${PORT}`;
+    // Windows 桌面版不往控制台输出，让它写日志文件，面板的「日志」从文件读
+    if (IS_WINDOWS) env.LOG_FILE = 'true';
     if (!IS_TERMUX) return { cmd: BIN_PATH, args, env };
 
     // 安卓没有 /etc/resolv.conf，Go 的 DNS 解析器读不到会全部失败；用 proot 映射 Termux 的
@@ -206,7 +218,7 @@ function buildCommand() {
 function launch() {
     const { cmd, args, env } = buildCommand();
     setStatus('starting', '启动中');
-    const child = spawn(cmd, args, { cwd: APP_DIR, env, stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn(cmd, args, { cwd: APP_DIR, env, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
     state.child = child;
 
     const onOutput = (chunk) => {
@@ -265,6 +277,18 @@ let busy = false;
 // 正在运行的「本目录这个程序」的进程：酒馆被强制结束时留下的、或用同目录的 Termux 命令起的。
 // 它们是本插件管的那份程序，认领回来，面板照样能停。
 function ownPids() {
+    if (IS_WINDOWS) {
+        // 按可执行文件完整路径找；路径里的单引号按 PowerShell 规则转义
+        const target = BIN_PATH.replace(/'/g, "''");
+        try {
+            const out = execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command',
+                `Get-CimInstance Win32_Process -Filter "Name='${BIN_NAME}'" | Where-Object { $_.ExecutablePath -eq '${target}' } | ForEach-Object { $_.ProcessId }`],
+            { encoding: 'utf8', windowsHide: true, timeout: 15000 });
+            return out.split(/\r?\n/).map((s) => Number(s.trim())).filter((p) => p > 0);
+        } catch {
+            return [];
+        }
+    }
     if (fs.existsSync('/proc/self/cmdline')) {
         const pids = [];
         for (const d of fs.readdirSync('/proc')) {
@@ -278,6 +302,28 @@ function ownPids() {
     try {
         return execFileSync('pgrep', ['-f', BIN_PATH], { encoding: 'utf8' })
             .split('\n').filter(Boolean).map(Number).filter((p) => p !== process.pid);
+    } catch {
+        return [];
+    }
+}
+
+// Windows 桌面版的日志文件（LOG_FILE=true 时写 runtime/logs/），取最新文件的末尾
+function fileLogs() {
+    try {
+        const dir = path.join(APP_DIR, 'runtime', 'logs');
+        const newest = fs.readdirSync(dir)
+            .filter((f) => f.endsWith('.log'))
+            .map((f) => ({ f, t: fs.statSync(path.join(dir, f)).mtimeMs }))
+            .sort((a, b) => b.t - a.t)[0];
+        if (!newest) return [];
+        const file = path.join(dir, newest.f);
+        const size = fs.statSync(file).size;
+        const fd = fs.openSync(file, 'r');
+        const len = Math.min(size, 64 * 1024);
+        const buf = Buffer.alloc(len);
+        fs.readSync(fd, buf, 0, len, size - len);
+        fs.closeSync(fd);
+        return buf.toString('utf8').split(/\r?\n/).slice(1).filter(Boolean).map(prettyLine).slice(-LOG_LIMIT);
     } catch {
         return [];
     }
@@ -433,7 +479,7 @@ async function init(router) {
             res.status(400).json({ ok: false, error: err.message, ...(await snapshot()) });
         }
     });
-    router.get('/logs', (_req, res) => res.json({ logs: state.logs }));
+    router.get('/logs', (_req, res) => res.json({ logs: IS_WINDOWS ? [...state.logs, ...fileLogs()] : state.logs }));
 
     startFrameProxy();
 
