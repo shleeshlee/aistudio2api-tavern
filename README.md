@@ -19,7 +19,15 @@ curl -fsSL https://raw.githubusercontent.com/shleeshlee/aistudio2api-tavern/main
 3. 打开 `config.yaml` 的 `enableServerPlugins`
 4. Termux 上缺 proot 时补装（用来给程序修 DNS）
 
-再次运行同一行命令即更新插件。
+脚本会一并下载 AIStudio2API 程序本体，酒馆在运行时会问要不要自动重启，重启后自动验收插件是否加载。再次运行同一行命令即更新。
+
+## 卸载
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/shleeshlee/aistudio2api-tavern/main/uninstall.sh | bash
+```
+
+先停止程序，再删除插件和面板；`~/aistudio2api/`（程序和已导入的账号）会单独询问，默认保留。
 
 ## 使用
 
